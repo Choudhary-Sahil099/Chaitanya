@@ -1,0 +1,110 @@
+
+# =====================================
+# Python
+# =====================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# =====================================
+# Virtual Environments
+# =====================================
+venv/
+.venv/
+env/
+ENV/
+
+# =====================================
+# Environment Variables & Secrets
+# =====================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Kaggle API credentials
+kaggle.json
+.kaggle/
+
+# =====================================
+# Machine Learning Model Artifacts
+# =====================================
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.keras
+*.onnx
+
+# Keep model configuration files
+!backend/app/models/*.json
+
+# =====================================
+# Datasets & Test Images
+# =====================================
+datasets/
+dataset/
+data/
+HAM10000/
+HAM10000_images_part_1/
+HAM10000_images_part_2/
+*.zip
+
+
+
+# =====================================
+# Generated Visualizations
+# =====================================
+*_heatmap.jpg
+*_heatmap.png
+*_overlay.jpg
+*_overlay.png
+real_original.jpg
+gradcam_test_*
+
+# =====================================
+# Testing & Coverage
+# =====================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# =====================================
+# Jupyter Notebook
+# =====================================
+.ipynb_checkpoints/
+
+# =====================================
+# IDE & Editor
+# =====================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =====================================
+# Operating System
+# =====================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =====================================
+# Logs & Temporary Files
+# =====================================
+*.log
+*.tmp
+*.bak
+
+# =====================================
+# Node / Frontend
+# =====================================
+node_modules/
+dist/
+build/
+.next/
+coverage/

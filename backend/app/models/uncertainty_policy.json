@@ -1,0 +1,22 @@
+{
+    "model": "EfficientNet-B0",
+    "dataset": "HAM10000",
+    "temperature": 1.3472824096679688,
+    "target_policy_accuracy": 0.9,
+    "minimum_policy_samples": 30,
+    "decision_policy": {
+        "confidence_threshold": 0.7502970695495605,
+        "entropy_threshold": 0.34493762254714966,
+        "accuracy": 0.9045226130653267,
+        "coverage": 0.7834645669291339,
+        "accepted_count": 398
+    },
+    "evaluation": {
+        "overall_accuracy": 0.8174273858921162,
+        "selective_accuracy": 0.915068493150685,
+        "coverage": 0.7572614107883817,
+        "abstention_rate": 0.24273858921161828,
+        "accepted_samples": 365,
+        "evaluation_samples": 482
+    }
+}

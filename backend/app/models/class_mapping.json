@@ -1,0 +1,34 @@
+{
+  "label_to_code": {
+    "0": "nv",
+    "1": "mel",
+    "2": "bkl",
+    "3": "bcc",
+    "4": "akiec",
+    "5": "vasc",
+    "6": "df"
+  },
+  "code_to_name": {
+    "nv": "Melanocytic nevi",
+    "mel": "Melanoma",
+    "bkl": "Benign keratosis",
+    "bcc": "Basal cell carcinoma",
+    "akiec": "Actinic keratoses",
+    "vasc": "Vascular lesions",
+    "df": "Dermatofibroma"
+  },
+  "input_size": [
+    224,
+    224
+  ],
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ]
+}

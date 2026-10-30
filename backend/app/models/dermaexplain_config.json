@@ -1,0 +1,36 @@
+{
+    "model_name": "EfficientNet-B0",
+    "dataset": "HAM10000",
+    "num_classes": 7,
+    "temperature": 1.3472824096679688,
+    "input_size": [
+        224,
+        224
+    ],
+    "mean": [
+        0.485,
+        0.456,
+        0.406
+    ],
+    "std": [
+        0.229,
+        0.224,
+        0.225
+    ],
+    "class_names": [
+        "Melanocytic nevi",
+        "Melanoma",
+        "Benign keratosis",
+        "Basal cell carcinoma",
+        "Actinic keratoses",
+        "Vascular lesions",
+        "Dermatofibroma"
+    ],
+    "calibration": {
+        "method": "Temperature Scaling",
+        "ece_before": 0.08423388004302979,
+        "ece_after": 0.04814515635371208,
+        "brier_before": 0.2506031095981598,
+        "brier_after": 0.2378428429365158
+    }
+}
