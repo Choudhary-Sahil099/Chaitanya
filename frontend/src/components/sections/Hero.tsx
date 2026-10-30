@@ -40,7 +40,7 @@ export default function Hero() {
           responsible AI use.
         </p>
 
-        <a className="button button-hero" href="#application">
+        <a className="button button-hero" href="/app">
           Get Application <ArrowRight size={21} strokeWidth={1.8} />
         </a>
 

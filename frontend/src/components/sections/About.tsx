@@ -75,7 +75,6 @@ export default function About() {
   return (
     <section className="about-section" id="about">
       <div className="about-container">
-        {/* LEFT CONTENT */}
         <div className="about-left">
           <div className="about-eyebrow">
             <span>ABOUT SKINSIGHT</span>

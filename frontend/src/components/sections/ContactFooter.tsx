@@ -1,4 +1,3 @@
-
 import {
   ArrowRight,
   ArrowUpRight,
@@ -6,7 +5,6 @@ import {
   MapPin,
   UsersRound,
   ShieldCheck,
-  
 } from "lucide-react";
 
 import BrandLogo from "../ui/BrandLogo";
@@ -50,11 +48,9 @@ export default function ContactFooter() {
   return (
     <footer className="contact-footer" id="contact">
       <div className="footer-container">
-
         {/* MAIN FOOTER CONTENT */}
 
         <div className="footer-main">
-
           {/* BRAND COLUMN */}
 
           <div className="footer-brand-column">
@@ -62,16 +58,13 @@ export default function ContactFooter() {
               <BrandLogo />
             </div>
 
-            <p className="footer-tagline">
-              AI FOR HEALTHIER SKIN
-            </p>
+            <p className="footer-tagline">AI FOR HEALTHIER SKIN</p>
 
             <p className="footer-description">
-              An AI-powered web application for skin lesion
-              classification using the HAM10000 dataset.
-              Providing prediction confidence, visual
-              explanations, and uncertainty assessment
-              for educational and research purposes.
+              An AI-powered web application for skin lesion classification using
+              the HAM10000 dataset. Providing prediction confidence, visual
+              explanations, and uncertainty assessment for educational and
+              research purposes.
             </p>
 
             <div className="footer-socials">
@@ -94,9 +87,7 @@ export default function ContactFooter() {
           {/* QUICK LINKS */}
 
           <div className="footer-links-column">
-            <h3 className="footer-column-title">
-              Quick Links
-            </h3>
+            <h3 className="footer-column-title">Quick Links</h3>
 
             <div className="footer-links">
               {quickLinks.map((link) => (
@@ -115,9 +106,7 @@ export default function ContactFooter() {
           {/* CONTACT DETAILS */}
 
           <div className="footer-contact-column">
-            <h3 className="footer-column-title">
-              Get in Touch
-            </h3>
+            <h3 className="footer-column-title">Get in Touch</h3>
 
             <div className="contact-details">
               {contactDetails.map((detail) => {
@@ -163,31 +152,25 @@ export default function ContactFooter() {
             <h3>Stay Connected</h3>
 
             <p>
-              Have questions or suggestions?
-              Feel free to reach out. We'd love
+              Have questions or suggestions? Feel free to reach out. We'd love
               to hear from you!
             </p>
 
-            <a href="#application" className="button footer-cta-button">
+            <a href="/app" className="button footer-cta-button">
               Get Application
               <ArrowRight size={21} />
             </a>
           </div>
-
         </div>
 
         <div className="footer-bottom">
-
-          <p className="copyright">
-            © 2026 SkinSight. All rights reserved.
-          </p>
+          <p className="copyright">© 2026 SkinSight. All rights reserved.</p>
 
           <div className="legal-links">
             <a href="#privacy-policy">Privacy Policy</a>
             <a href="#terms-of-use">Terms of Use</a>
             <a href="#disclaimer">Disclaimer</a>
           </div>
-
         </div>
       </div>
     </footer>

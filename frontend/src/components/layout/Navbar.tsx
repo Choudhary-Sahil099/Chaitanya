@@ -1,4 +1,3 @@
-
 import { ArrowRight, Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import BrandLogo from "../ui/BrandLogo";
@@ -71,19 +70,14 @@ export default function Navbar() {
   return (
     <header className="site-header">
       <nav className="navbar" aria-label="Main navigation">
-
         <BrandLogo />
 
-        <div
-          className={`nav-links ${menuOpen ? "nav-links-open" : ""}`}
-        >
+        <div className={`nav-links ${menuOpen ? "nav-links-open" : ""}`}>
           {links.map((link) => (
             <a
               key={link.label}
               href={link.href}
-              aria-current={
-                activeLink === link.label ? "location" : undefined
-              }
+              aria-current={activeLink === link.label ? "location" : undefined}
               className={`nav-link ${
                 activeLink === link.label ? "active" : ""
               }`}
@@ -99,7 +93,7 @@ export default function Navbar() {
 
         <a
           className="button button-nav"
-          href="#application"
+          href="/app"
           onClick={() => setMenuOpen(false)}
         >
           <span>Get Application</span>
@@ -116,7 +110,6 @@ export default function Navbar() {
         >
           {menuOpen ? <X size={23} /> : <Menu size={23} />}
         </button>
-
       </nav>
     </header>
   );
