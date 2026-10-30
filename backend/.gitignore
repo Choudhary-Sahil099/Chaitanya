@@ -31,15 +31,13 @@ kaggle.json
 # =====================================
 # Machine Learning Model Artifacts
 # =====================================
-*.pth
 *.pt
 *.ckpt
 *.h5
 *.keras
 *.onnx
 
-# Keep model configuration files
-!backend/app/models/*.json
+
 
 # =====================================
 # Datasets & Test Images
