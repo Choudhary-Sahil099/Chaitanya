@@ -41,7 +41,7 @@ export default function Hero() {
         </p>
 
         <a className="button button-hero" href="/app">
-          Get Application <ArrowRight size={21} strokeWidth={1.8} />
+          Enter the site <ArrowRight size={21} strokeWidth={1.8} />
         </a>
 
         <div className="hero-divider" />

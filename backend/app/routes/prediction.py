@@ -14,7 +14,12 @@ from app.services.model_loader import model_loader
 
 from app.schemas.prediction_schema import PredictionResponse
 
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session
 
+from app.database.connection import get_db
+from app.database.models import Analysis
+from app.services.storage_service import save_analysis_images
 router = APIRouter(
     prefix="/api",
     tags=["Prediction"]
@@ -37,7 +42,8 @@ def encode_image(image):
     response_model=PredictionResponse
 )
 async def predict_image(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
 ):
     """
     Classify an uploaded dermoscopic image,
@@ -102,10 +108,41 @@ async def predict_image(
         # Encode images as Base64
         heatmap_base64 = encode_image(heatmap)
         overlay_base64 = encode_image(overlay)
+        # Save original image and Grad-CAM visualizations
+        saved_files = save_analysis_images(
+            image_bytes=image_bytes,
+            heatmap=heatmap,
+            overlay=overlay
+        )
 
+        # Create database record
+        analysis = Analysis(
+            original_filename=file.filename or "uploaded_image",
+            image_path=saved_files["image_path"],
+
+            predicted_class=result["predicted_class"],
+            predicted_class_code=result["predicted_class_code"],
+            confidence=result["confidence"],
+
+            status=result["status"],
+            is_uncertain=result["is_uncertain"],
+            normalized_entropy=result["normalized_entropy"],
+            uncertainty_reasons=result["uncertainty_reasons"],
+
+            class_probabilities=result["class_probabilities"],
+
+            gradcam_heatmap_path=saved_files["gradcam_heatmap_path"],
+            gradcam_overlay_path=saved_files["gradcam_overlay_path"]
+        )
+
+        # Persist analysis
+        db.add(analysis)
+        db.commit()
+        db.refresh(analysis)
         # Return structured response
         return PredictionResponse(
             **result,
+            analysis_id=analysis.id,
             gradcam_heatmap=heatmap_base64,
             gradcam_overlay=overlay_base64
         )

@@ -96,7 +96,7 @@ export default function Navbar() {
           href="/app"
           onClick={() => setMenuOpen(false)}
         >
-          <span>Get Application</span>
+          <span>Try a Demo</span>
           <ArrowRight size={19} strokeWidth={1.8} />
         </a>
 

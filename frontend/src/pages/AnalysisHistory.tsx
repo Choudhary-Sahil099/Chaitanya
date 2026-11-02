@@ -1,5 +1,5 @@
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -7,66 +7,97 @@ import {
   CalendarDays,
   ChevronDown,
   FileImage,
+  Loader2,
   Menu,
   Microscope,
   Search,
   ShieldCheck,
   UserRound,
+  X,
+  Trash2,
 } from "lucide-react";
 
 import Sidebar from "../components/layout/Sidebar";
 import "../styles/dashboard.css";
 
+// --------------------------------------------------
+// API CONFIGURATION
+// --------------------------------------------------
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+// --------------------------------------------------
+// TYPES
+// --------------------------------------------------
+
 interface AnalysisRecord {
   id: number;
-  imageName: string;
-  predictedClass: string;
-  classCode: string;
+  original_filename: string;
+  predicted_class: string;
+  predicted_class_code: string;
   confidence: number;
-  date: string;
-  status: "Accepted" | "Uncertain";
+  status: "accepted" | "uncertain";
+  is_uncertain: boolean;
+  created_at: string;
+  image_url: string;
 }
 
-// Temporary sample data.
-// We will replace this with API data when SQLite persistence is implemented.
-const sampleRecords: AnalysisRecord[] = [
-  {
-    id: 1,
-    imageName: "lesion_sample_01.jpg",
-    predictedClass: "Melanocytic nevi",
-    classCode: "nv",
-    confidence: 0.96,
-    date: "2026-10-28T10:30:00",
-    status: "Accepted",
-  },
-  {
-    id: 2,
-    imageName: "skin_image_02.png",
-    predictedClass: "Melanoma",
-    classCode: "mel",
-    confidence: 0.72,
-    date: "2026-10-26T15:45:00",
-    status: "Uncertain",
-  },
-  {
-    id: 3,
-    imageName: "lesion_sample_03.jpg",
-    predictedClass: "Benign keratosis-like lesions",
-    classCode: "bkl",
-    confidence: 0.89,
-    date: "2026-10-24T12:15:00",
-    status: "Accepted",
-  },
-  {
-    id: 4,
-    imageName: "skin_image_04.webp",
-    predictedClass: "Basal cell carcinoma",
-    classCode: "bcc",
-    confidence: 0.64,
-    date: "2026-10-21T09:20:00",
-    status: "Uncertain",
-  },
+interface HistoryResponse {
+  success: boolean;
+  total: number;
+  analyses: AnalysisRecord[];
+}
+
+interface ClassProbability {
+  class_index: number;
+  class_code: string;
+  class_name: string;
+  probability: number;
+}
+
+interface AnalysisDetail {
+  id: number;
+  original_filename: string;
+  predicted_class: string;
+  predicted_class_code: string;
+  confidence: number;
+  status: "accepted" | "uncertain";
+  is_uncertain: boolean;
+  normalized_entropy: number;
+  uncertainty_reasons: string[];
+  class_probabilities: ClassProbability[];
+  created_at: string;
+  image_url: string;
+  gradcam_heatmap_url: string;
+  gradcam_overlay_url: string;
+}
+
+interface DetailResponse {
+  success: boolean;
+  analysis: AnalysisDetail;
+}
+
+// --------------------------------------------------
+// HAM10000 CLASS OPTIONS
+// --------------------------------------------------
+
+const CLASS_OPTIONS = [
+  { code: "nv", name: "Melanocytic nevi" },
+  { code: "mel", name: "Melanoma" },
+  { code: "bkl", name: "Benign keratosis" },
+  { code: "bcc", name: "Basal cell carcinoma" },
+  { code: "akiec", name: "Actinic keratoses" },
+  { code: "vasc", name: "Vascular lesions" },
+  { code: "df", name: "Dermatofibroma" },
 ];
+
+// --------------------------------------------------
+// HELPER FUNCTIONS
+// --------------------------------------------------
+
+// Use Vite proxy for all backend requests.
+const getApiUrl = (path: string) => path;
 
 const formatDate = (date: string) =>
   new Date(date).toLocaleDateString("en-IN", {
@@ -75,33 +106,201 @@ const formatDate = (date: string) =>
     year: "numeric",
   });
 
+const formatPercentage = (value: number) =>
+  `${(value * 100).toFixed(1)}%`;
+
+// --------------------------------------------------
+// COMPONENT
+// --------------------------------------------------
+
 export default function AnalysisHistory() {
+  // Sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // History records
+  const [records, setRecords] = useState<AnalysisRecord[]>([]);
+
+  // Search and filtering
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClass, setSelectedClass] = useState("all");
 
+  // Loading and error states
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Detail modal
+  const [selectedAnalysis, setSelectedAnalysis] =
+    useState<AnalysisDetail | null>(null);
+
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+
+  // Delete state
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // --------------------------------------------------
+  // FETCH HISTORY
+  // --------------------------------------------------
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError("");
+
+      const response = await fetch(getApiUrl("/api/history"));
+
+      if (!response.ok) {
+        throw new Error("Could not load analysis history.");
+      }
+
+      const data: HistoryResponse = await response.json();
+
+      setRecords(data.analyses ?? []);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while loading history.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  // --------------------------------------------------
+  // SEARCH AND FILTER
+  // --------------------------------------------------
+
   const filteredRecords = useMemo(() => {
-    return sampleRecords.filter((record) => {
+    return records.filter((record) => {
+      const query = searchQuery.toLowerCase().trim();
+
       const matchesSearch =
-        record.imageName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        record.predictedClass.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        record.classCode.toLowerCase().includes(searchQuery.toLowerCase());
+        record.original_filename.toLowerCase().includes(query) ||
+        record.predicted_class.toLowerCase().includes(query) ||
+        record.predicted_class_code.toLowerCase().includes(query);
 
       const matchesClass =
-        selectedClass === "all" || record.classCode === selectedClass;
+        selectedClass === "all" ||
+        record.predicted_class_code === selectedClass;
 
       return matchesSearch && matchesClass;
     });
-  }, [searchQuery, selectedClass]);
+  }, [records, searchQuery, selectedClass]);
 
-  const totalAnalyses = sampleRecords.length;
-  const uncertainAnalyses = sampleRecords.filter(
-    (record) => record.status === "Uncertain"
+  // --------------------------------------------------
+  // STATISTICS
+  // --------------------------------------------------
+
+  const totalAnalyses = records.length;
+
+  const uncertainAnalyses = records.filter(
+    (record) => record.is_uncertain,
   ).length;
 
   const averageConfidence =
-    sampleRecords.reduce((total, record) => total + record.confidence, 0) /
-    (totalAnalyses || 1);
+    records.length > 0
+      ? records.reduce(
+          (total, record) => total + record.confidence,
+          0,
+        ) / records.length
+      : 0;
+
+  // --------------------------------------------------
+  // OPEN ANALYSIS DETAILS
+  // --------------------------------------------------
+
+  const openAnalysis = async (analysisId: number) => {
+    try {
+      setIsDetailLoading(true);
+      setDetailError("");
+      setSelectedAnalysis(null);
+
+      const response = await fetch(
+        getApiUrl(`/api/history/${analysisId}`),
+      );
+
+      if (!response.ok) {
+        throw new Error("Could not load analysis details.");
+      }
+
+      const data: DetailResponse = await response.json();
+
+      setSelectedAnalysis(data.analysis);
+    } catch (err) {
+      setDetailError(
+        err instanceof Error
+          ? err.message
+          : "Could not load this analysis.",
+      );
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // CLOSE MODAL
+  // --------------------------------------------------
+
+  const closeAnalysis = () => {
+    if (isDeleting) return;
+
+    setSelectedAnalysis(null);
+    setDetailError("");
+    setIsDetailLoading(false);
+  };
+
+  // --------------------------------------------------
+  // DELETE ANALYSIS
+  // --------------------------------------------------
+
+  const deleteAnalysis = async (analysisId: number) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to permanently delete this analysis?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setIsDeleting(true);
+      setDetailError("");
+
+      const response = await fetch(
+        getApiUrl(`/api/history/${analysisId}`),
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Could not delete this analysis.");
+      }
+
+      // Remove the deleted record from the UI.
+      setRecords((previous) =>
+        previous.filter((record) => record.id !== analysisId),
+      );
+
+      // Close the modal after successful deletion.
+      setSelectedAnalysis(null);
+    } catch (err) {
+      setDetailError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while deleting.",
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // RENDER
+  // --------------------------------------------------
 
   return (
     <div className="dashboard-layout">
@@ -111,6 +310,8 @@ export default function AnalysisHistory() {
       />
 
       <main className="dashboard-main">
+        {/* HEADER */}
+
         <header className="dashboard-header">
           <div className="dashboard-header-left">
             <button
@@ -125,6 +326,7 @@ export default function AnalysisHistory() {
               <span className="dashboard-breadcrumb">
                 Workspace / Analysis History
               </span>
+
               <h1>Analysis History</h1>
             </div>
           </div>
@@ -137,6 +339,8 @@ export default function AnalysisHistory() {
         </header>
 
         <div className="dashboard-content">
+          {/* WELCOME SECTION */}
+
           <section className="dashboard-welcome">
             <div>
               <span className="dashboard-eyebrow">
@@ -147,8 +351,9 @@ export default function AnalysisHistory() {
               <h2>Your analysis journey.</h2>
 
               <p>
-                Review your previous image classifications, confidence
-                scores, and model uncertainty results in one place.
+                Review your previous image classifications,
+                confidence scores, and model uncertainty
+                results in one place.
               </p>
 
               <Link
@@ -168,15 +373,18 @@ export default function AnalysisHistory() {
             </div>
           </section>
 
+          {/* STATISTICS */}
+
           <section className="dashboard-stats">
             <article className="dashboard-stat-card">
               <div className="stat-icon blue">
                 <FileImage size={21} />
               </div>
+
               <div>
                 <span>Total analyses</span>
                 <strong>{totalAnalyses}</strong>
-                <small>Sample records</small>
+                <small>Saved records</small>
               </div>
             </article>
 
@@ -184,10 +392,13 @@ export default function AnalysisHistory() {
               <div className="stat-icon purple">
                 <CalendarDays size={21} />
               </div>
+
               <div>
                 <span>Average confidence</span>
-                <strong>{(averageConfidence * 100).toFixed(1)}%</strong>
-                <small>Across sample records</small>
+                <strong>
+                  {formatPercentage(averageConfidence)}
+                </strong>
+                <small>Across saved analyses</small>
               </div>
             </article>
 
@@ -195,6 +406,7 @@ export default function AnalysisHistory() {
               <div className="stat-icon green">
                 <ShieldCheck size={21} />
               </div>
+
               <div>
                 <span>Uncertain results</span>
                 <strong>{uncertainAnalyses}</strong>
@@ -202,6 +414,8 @@ export default function AnalysisHistory() {
               </div>
             </article>
           </section>
+
+          {/* HISTORY TABLE */}
 
           <section className="dashboard-history-section">
             <div className="section-heading">
@@ -218,17 +432,21 @@ export default function AnalysisHistory() {
             </div>
 
             <div className="dashboard-history-card">
+              {/* SEARCH AND FILTER */}
+
               <div
                 style={{
                   display: "flex",
                   gap: "12px",
                   flexWrap: "wrap",
                   marginBottom: "24px",
+                  minWidth: 0,
                 }}
               >
                 <div
                   style={{
                     flex: "1 1 240px",
+                    minWidth: 0,
                     position: "relative",
                   }}
                 >
@@ -252,6 +470,7 @@ export default function AnalysisHistory() {
                     }
                     style={{
                       width: "100%",
+                      boxSizing: "border-box",
                       padding: "13px 14px 13px 42px",
                       borderRadius: "10px",
                       border: "1px solid var(--border-color, #333)",
@@ -279,10 +498,12 @@ export default function AnalysisHistory() {
                     }}
                   >
                     <option value="all">All classes</option>
-                    <option value="nv">Melanocytic nevi</option>
-                    <option value="mel">Melanoma</option>
-                    <option value="bkl">Benign keratosis-like lesions</option>
-                    <option value="bcc">Basal cell carcinoma</option>
+
+                    {CLASS_OPTIONS.map((item) => (
+                      <option key={item.code} value={item.code}>
+                        {item.name}
+                      </option>
+                    ))}
                   </select>
 
                   <ChevronDown
@@ -298,150 +519,394 @@ export default function AnalysisHistory() {
                 </div>
               </div>
 
-              {filteredRecords.length > 0 ? (
-                <div style={{ overflowX: "auto" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      minWidth: "650px",
-                      textAlign: "left",
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        {[
-                          "IMAGE",
-                          "PREDICTED CLASS",
-                          "CONFIDENCE",
-                          "DATE",
-                          "STATUS",
-                        ].map((heading) => (
-                          <th
-                            key={heading}
-                            style={{
-                              padding: "14px 12px",
-                              fontSize: "11px",
-                              letterSpacing: "0.7px",
-                              opacity: 0.65,
-                              borderBottom: "1px solid var(--border-color, #333)",
-                            }}
-                          >
-                            {heading}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+              {/* LOADING STATE */}
 
-                    <tbody>
-                      {filteredRecords.map((record) => (
-                        <tr key={record.id}>
-                          <td
-                            style={{
-                              padding: "18px 12px",
-                              borderBottom: "1px solid var(--border-color, #333)",
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "10px",
-                              }}
-                            >
-                              <FileImage size={19} />
-                              <span>{record.imageName}</span>
-                            </div>
-                          </td>
-
-                          <td
-                            style={{
-                              padding: "18px 12px",
-                              borderBottom: "1px solid var(--border-color, #333)",
-                            }}
-                          >
-                            <strong>{record.predictedClass}</strong>
-                            <small
-                              style={{
-                                display: "block",
-                                opacity: 0.6,
-                                marginTop: "4px",
-                              }}
-                            >
-                              {record.classCode.toUpperCase()}
-                            </small>
-                          </td>
-
-                          <td
-                            style={{
-                              padding: "18px 12px",
-                              borderBottom: "1px solid var(--border-color, #333)",
-                            }}
-                          >
-                            {(record.confidence * 100).toFixed(1)}%
-                          </td>
-
-                          <td
-                            style={{
-                              padding: "18px 12px",
-                              borderBottom: "1px solid var(--border-color, #333)",
-                            }}
-                          >
-                            {formatDate(record.date)}
-                          </td>
-
-                          <td
-                            style={{
-                              padding: "18px 12px",
-                              borderBottom: "1px solid var(--border-color, #333)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "6px 10px",
-                                borderRadius: "20px",
-                                fontSize: "12px",
-                                background:
-                                  record.status === "Accepted"
-                                    ? "rgba(46, 160, 110, 0.12)"
-                                    : "rgba(220, 160, 50, 0.12)",
-                                color:
-                                  record.status === "Accepted"
-                                    ? "#43b581"
-                                    : "#d7a441",
-                              }}
-                            >
-                              {record.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
+              {isLoading && (
                 <div className="history-empty-state">
-                  <FileImage size={32} />
-                  <strong>No matching analyses found</strong>
-                  <span>
-                    Try changing your search or class filter.
-                  </span>
+                  <Loader2
+                    size={30}
+                    className="animate-spin"
+                  />
+                  <strong>Loading your analyses...</strong>
                 </div>
               )}
+
+              {/* ERROR STATE */}
+
+              {!isLoading && error && (
+                <div className="history-empty-state">
+                  <strong>Unable to load history</strong>
+                  <span>{error}</span>
+
+                  <button
+                    className="dashboard-primary-button"
+                    onClick={fetchHistory}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {/* RECORDS TABLE */}
+
+              {!isLoading &&
+                !error &&
+                filteredRecords.length > 0 && (
+                  <div className="history-table-wrapper">
+                    <table className="history-table">
+                      <thead>
+                        <tr>
+                          {[
+                            "IMAGE",
+                            "PREDICTED CLASS",
+                            "CONFIDENCE",
+                            "DATE",
+                            "STATUS",
+                            "DETAILS",
+                          ].map((heading) => (
+                            <th key={heading}>{heading}</th>
+                          ))}
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {filteredRecords.map((record) => (
+                          <tr
+                            key={record.id}
+                            onClick={() => openAnalysis(record.id)}
+                            title="View analysis details"
+                          >
+                            {/* IMAGE */}
+
+                            <td>
+                              <div className="history-image-cell">
+                                <img
+                                  src={getApiUrl(record.image_url)}
+                                  alt={record.original_filename}
+                                  loading="lazy"
+                                />
+
+                                <span>
+                                  {record.original_filename}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* PREDICTED CLASS */}
+
+                            <td>
+                              <strong>
+                                {record.predicted_class}
+                              </strong>
+
+                              <small>
+                                {record.predicted_class_code.toUpperCase()}
+                              </small>
+                            </td>
+
+                            {/* CONFIDENCE */}
+
+                            <td>
+                              {formatPercentage(record.confidence)}
+                            </td>
+
+                            {/* DATE */}
+
+                            <td>
+                              {formatDate(record.created_at)}
+                            </td>
+
+                            {/* STATUS */}
+
+                            <td>
+                              <span
+                                className={
+                                  record.is_uncertain
+                                    ? "history-status uncertain"
+                                    : "history-status accepted"
+                                }
+                              >
+                                {record.is_uncertain
+                                  ? "Uncertain"
+                                  : "Accepted"}
+                              </span>
+                            </td>
+
+                            {/* DETAILS */}
+
+                            <td>
+                              <ArrowRight size={18} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+              {/* EMPTY STATE */}
+
+              {!isLoading &&
+                !error &&
+                filteredRecords.length === 0 && (
+                  <div className="history-empty-state">
+                    <FileImage size={32} />
+
+                    <strong>
+                      {records.length === 0
+                        ? "No analyses saved yet"
+                        : "No matching analyses found"}
+                    </strong>
+
+                    <span>
+                      {records.length === 0
+                        ? "Your completed analyses will appear here."
+                        : "Try changing your search or class filter."}
+                    </span>
+                  </div>
+                )}
             </div>
           </section>
 
+          {/* DISCLAIMER */}
+
           <footer className="dashboard-disclaimer">
             <ShieldCheck size={17} />
+
             <p>
-              These records are sample data for the current UI design.
-              SkinSight is an educational AI tool, not a medical
-              diagnostic service.
+              These records contain saved AI predictions.
+              SkinSight is an educational AI research prototype,
+              not a medical diagnostic service.
             </p>
           </footer>
         </div>
       </main>
+
+      {/* ------------------------------------------------
+          ANALYSIS DETAIL MODAL
+      ------------------------------------------------ */}
+
+      {(isDetailLoading || selectedAnalysis || detailError) && (
+        <div
+          className="analysis-modal-backdrop"
+          onClick={closeAnalysis}
+        >
+          <div
+            className="analysis-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* MODAL HEADER */}
+
+            <div className="analysis-modal-header">
+              <div>
+                <span className="dashboard-eyebrow">
+                  SAVED ANALYSIS
+                </span>
+
+                <h2>Analysis details</h2>
+              </div>
+
+              <div className="analysis-modal-actions">
+                {/* DELETE BUTTON: only show when details exist */}
+
+                {selectedAnalysis && (
+                  <button
+                    onClick={() =>
+                      deleteAnalysis(selectedAnalysis.id)
+                    }
+                    disabled={isDeleting}
+                    className="analysis-delete-button"
+                  >
+                    <Trash2 size={16} />
+                    {isDeleting ? "Deleting..." : "Delete"}
+                  </button>
+                )}
+
+                <button
+                  onClick={closeAnalysis}
+                  aria-label="Close analysis details"
+                  className="analysis-close-button"
+                  disabled={isDeleting}
+                >
+                  <X size={22} />
+                </button>
+              </div>
+            </div>
+
+            {/* DETAIL LOADING */}
+
+            {isDetailLoading && (
+              <div className="history-empty-state">
+                <Loader2
+                  size={30}
+                  className="animate-spin"
+                />
+                <strong>Loading analysis details...</strong>
+              </div>
+            )}
+
+            {/* DETAIL ERROR */}
+
+            {detailError && (
+              <div className="history-empty-state">
+                <strong>Unable to load analysis</strong>
+                <span>{detailError}</span>
+              </div>
+            )}
+
+            {/* ANALYSIS CONTENT */}
+
+            {selectedAnalysis && (
+              <div className="analysis-detail-content">
+                {/* PREDICTION SUMMARY */}
+
+                <div>
+                  <h3>{selectedAnalysis.predicted_class}</h3>
+
+                  <p style={{ opacity: 0.65 }}>
+                    {selectedAnalysis.original_filename}
+                  </p>
+
+                  <div className="analysis-meta">
+                    <span>
+                      Confidence:{" "}
+                      <strong>
+                        {formatPercentage(
+                          selectedAnalysis.confidence,
+                        )}
+                      </strong>
+                    </span>
+
+                    <span>
+                      Status:{" "}
+                      <strong>
+                        {selectedAnalysis.is_uncertain
+                          ? "Uncertain"
+                          : "Accepted"}
+                      </strong>
+                    </span>
+
+                    <span>
+                      Date:{" "}
+                      <strong>
+                        {formatDate(selectedAnalysis.created_at)}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* IMAGES */}
+
+                <div className="analysis-image-grid">
+                  <div>
+                    <h4>Original image</h4>
+
+                    <img
+                      src={getApiUrl(
+                        selectedAnalysis.image_url,
+                      )}
+                      alt="Original uploaded skin image"
+                    />
+                  </div>
+
+                  <div>
+                    <h4>Grad-CAM heatmap</h4>
+
+                    <img
+                      src={getApiUrl(
+                        selectedAnalysis.gradcam_heatmap_url,
+                      )}
+                      alt="Grad-CAM heatmap"
+                    />
+                  </div>
+
+                  <div>
+                    <h4>Grad-CAM overlay</h4>
+
+                    <img
+                      src={getApiUrl(
+                        selectedAnalysis.gradcam_overlay_url,
+                      )}
+                      alt="Grad-CAM overlay"
+                    />
+                  </div>
+                </div>
+
+                {/* CLASS PROBABILITIES */}
+
+                <div>
+                  <h4>Class probabilities</h4>
+
+                  {selectedAnalysis.class_probabilities
+                    .slice()
+                    .sort(
+                      (a, b) => b.probability - a.probability,
+                    )
+                    .map((item) => (
+                      <div
+                        key={item.class_code}
+                        className="analysis-probability"
+                      >
+                        <div className="analysis-probability-label">
+                          <span>{item.class_name}</span>
+
+                          <strong>
+                            {formatPercentage(item.probability)}
+                          </strong>
+                        </div>
+
+                        <div className="analysis-probability-track">
+                          <div
+                            style={{
+                              width: `${Math.max(
+                                0,
+                                Math.min(100, item.probability * 100),
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                </div>
+
+                {/* UNCERTAINTY INFORMATION */}
+
+                <div>
+                  <h4>Uncertainty information</h4>
+
+                  <p>
+                    Normalized entropy:{" "}
+                    {selectedAnalysis.normalized_entropy.toFixed(4)}
+                  </p>
+
+                  {selectedAnalysis.uncertainty_reasons.length > 0 ? (
+                    <ul>
+                      {selectedAnalysis.uncertainty_reasons.map(
+                        (reason, index) => (
+                          <li key={index}>{reason}</li>
+                        ),
+                      )}
+                    </ul>
+                  ) : (
+                    <p style={{ opacity: 0.65 }}>
+                      No uncertainty reasons were reported.
+                    </p>
+                  )}
+                </div>
+
+                {/* DISCLAIMER */}
+
+                <p className="analysis-detail-disclaimer">
+                  SkinSight is an experimental AI research
+                  prototype. Its predictions are not medical
+                  diagnoses. Consult a qualified healthcare
+                  professional for medical assessment.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

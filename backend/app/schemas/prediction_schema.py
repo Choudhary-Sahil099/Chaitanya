@@ -17,7 +17,7 @@ class PredictionResponse(BaseModel):
     """Complete DermaExplain prediction response."""
 
     success: bool = True
-
+    analysis_id: Optional[int] = None
     predicted_class: str
     predicted_class_code: str
 

@@ -1,15 +1,18 @@
-
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
   type DragEvent,
 } from "react";
 
+import ReactMarkdown from "react-markdown";
+
 import {
   Activity,
   AlertCircle,
   ArrowRight,
+  Camera,
   CheckCircle2,
   FileImage,
   ImagePlus,
@@ -23,19 +26,34 @@ import {
   AlertTriangle,
   Sparkles,
 } from "lucide-react";
-
 import Sidebar from "../components/layout/Sidebar";
 import "../styles/dashboard.css";
 import "../styles/NewAnalysis.css";
 
 import { useAnalysis } from "../context/AnalysisContext";
+const API_URL = "/api/predict";
 
-const API_URL = "http://localhost:8000/api/predict";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export default function NewAnalysis() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingReview, setIsGeneratingReview] = useState(false);
+  const [aiReview, setAiReview] = useState<{
+    review: string;
+    model: string;
+    disclaimer: string;
+  } | null>(null);
+
+  const [aiReviewError, setAiReviewError] = useState<string | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">(
+    "environment",
+  );
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +69,166 @@ export default function NewAnalysis() {
 
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
 
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const closeCamera = () => {
+    stopCamera();
+    setIsCameraOpen(false);
+    setCameraError(null);
+  };
+
+  const startCamera = async () => {
+    setCameraError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError(
+        "Camera access is unavailable. Use HTTPS or localhost, or upload an image instead.",
+      );
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err) {
+      const errorName = err instanceof Error ? err.name : "";
+
+      if (errorName === "NotAllowedError") {
+        setCameraError(
+          "Camera permission was denied. Allow camera access in your browser settings.",
+        );
+      } else if (
+        errorName === "NotFoundError" ||
+        errorName === "DevicesNotFoundError"
+      ) {
+        setCameraError("No available camera was found on this device.");
+      } else {
+        setCameraError(
+          "Unable to access the camera. Check your camera connection and permissions.",
+        );
+      }
+    }
+  };
+
+  const captureImage = () => {
+    const video = videoRef.current;
+
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError("The camera is not ready yet. Please try again.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      setCameraError("Unable to capture the image. Please try again.");
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setCameraError("Image capture failed. Please try again.");
+          return;
+        }
+
+        const file = new File([blob], `skinsight-capture-${Date.now()}.jpg`, {
+          type: "image/jpeg",
+        });
+
+        selectFile(file);
+        closeCamera();
+      },
+      "image/jpeg",
+      0.92,
+    );
+  };
+
+  useEffect(() => {
+    if (!isCameraOpen) return;
+
+    let cancelled = false;
+
+    const initializeCamera = async () => {
+      setCameraError(null);
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError(
+          "Camera access requires HTTPS or localhost. You can upload an image instead.",
+        );
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+      } catch (err) {
+        if (cancelled) return;
+
+        const name = err instanceof Error ? err.name : "";
+
+        setCameraError(
+          name === "NotAllowedError"
+            ? "Camera permission was denied. Allow camera access in your browser settings."
+            : name === "NotFoundError"
+              ? "No camera was found on this device."
+              : "Unable to start the camera. Check your device and browser permissions.",
+        );
+      }
+    };
+
+    void initializeCamera();
+
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
+  }, [isCameraOpen, facingMode]);
   // Handle file input
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -67,12 +244,9 @@ export default function NewAnalysis() {
   const selectFile = (file: File) => {
     setError(null);
     setPrediction(null);
-
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ];
+    setAiReview(null);
+    setAiReviewError(null);
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 
     if (!allowedTypes.includes(file.type)) {
       setError("Please select a JPEG, PNG, or WEBP image.");
@@ -115,7 +289,9 @@ export default function NewAnalysis() {
     setIsLoading(true);
     setError(null);
     setPrediction(null);
-
+    setAiReview(null);
+    setAiReviewError(null);
+    setIsGeneratingReview(false);
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
@@ -128,15 +304,11 @@ export default function NewAnalysis() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.detail || "Prediction request failed."
-        );
+        throw new Error(data.detail || "Prediction request failed.");
       }
 
       if (!data.success) {
-        throw new Error(
-          "The model could not process this image."
-        );
+        throw new Error("The model could not process this image.");
       }
 
       setPrediction(data);
@@ -144,10 +316,133 @@ export default function NewAnalysis() {
       setError(
         err instanceof Error
           ? err.message
-          : "Something went wrong while analyzing the image."
+          : "Something went wrong while analyzing the image.",
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGetAIReview = async () => {
+    if (!prediction) {
+      setAiReviewError("Please complete an image analysis first.");
+      return;
+    }
+
+    setIsGeneratingReview(true);
+    setAiReviewError(null);
+    setAiReview(null);
+
+    try {
+      const classProbabilities = Object.fromEntries(
+        [...prediction.class_probabilities]
+          .sort((a, b) => b.probability - a.probability)
+          .slice(0, 3)
+          .map((entry) => [
+            entry.class_code,
+            Number(entry.probability.toFixed(4)),
+          ]),
+      );
+
+      const response = await fetch("/api/ai-review", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          predicted_class: prediction.predicted_class,
+          predicted_class_code: prediction.predicted_class_code,
+          confidence: prediction.confidence,
+          class_probabilities: classProbabilities,
+          is_uncertain: prediction.is_uncertain,
+          normalized_entropy: prediction.normalized_entropy,
+          uncertainty_reasons: prediction.uncertainty_reasons.slice(0, 2),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to start the AI review.");
+      }
+
+      if (!response.body) {
+        throw new Error("Your browser does not support response streaming.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      let buffer = "";
+      let accumulatedReview = "";
+      let completed = false;
+
+      const processEvent = (eventText: string) => {
+        const dataLine = eventText
+          .split("\n")
+          .find((line) => line.startsWith("data:"));
+
+        if (!dataLine) return;
+
+        const payload = JSON.parse(dataLine.slice(5).trim());
+
+        if (payload.type === "chunk") {
+          accumulatedReview += payload.text;
+
+          setAiReview({
+            review: accumulatedReview,
+            model: "gemini-3.8-flash",
+            disclaimer: "",
+          });
+        }
+
+        if (payload.type === "done") {
+          completed = true;
+
+          setAiReview({
+            review: accumulatedReview,
+            model: payload.model,
+            disclaimer: payload.disclaimer,
+          });
+        }
+
+        if (payload.type === "error") {
+          throw new Error(payload.message);
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, "\n");
+
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+
+        for (const eventText of events) {
+          processEvent(eventText);
+        }
+      }
+
+      buffer += decoder.decode();
+
+      if (buffer.trim()) {
+        processEvent(buffer);
+      }
+
+      if (!completed) {
+        throw new Error("The AI review stream ended unexpectedly.");
+      }
+    } catch (err) {
+      setAiReviewError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while generating the AI review.",
+      );
+    } finally {
+      setIsGeneratingReview(false);
     }
   };
 
@@ -176,9 +471,7 @@ export default function NewAnalysis() {
   const formatPercentage = (value: number) => {
     const percentage = Number(value) * 100;
 
-    return Number.isFinite(percentage)
-      ? `${percentage.toFixed(2)}%`
-      : "N/A";
+    return Number.isFinite(percentage) ? `${percentage.toFixed(2)}%` : "N/A";
   };
 
   const formatFileSize = (size: number) => {
@@ -190,19 +483,15 @@ export default function NewAnalysis() {
   // Sort class probabilities by highest probability
   const probabilityEntries = prediction
     ? [...prediction.class_probabilities].sort(
-        (a, b) => b.probability - a.probability
+        (a, b) => b.probability - a.probability,
       )
     : [];
 
   return (
     <div className="dashboard-layout">
-      <Sidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <main className="dashboard-main">
-
         {/* Header */}
         <header className="dashboard-header">
           <div className="dashboard-header-left">
@@ -230,7 +519,6 @@ export default function NewAnalysis() {
         </header>
 
         <div className="dashboard-content analysis-page">
-
           <section className="analysis-intro">
             <div>
               <span className="dashboard-eyebrow">
@@ -242,8 +530,8 @@ export default function NewAnalysis() {
 
               <p>
                 Upload a skin lesion image to explore the model's
-                classification, confidence, uncertainty assessment,
-                and visual explanations.
+                classification, confidence, uncertainty assessment, and visual
+                explanations.
               </p>
             </div>
 
@@ -255,13 +543,11 @@ export default function NewAnalysis() {
           <section className="analysis-section">
             <div className="analysis-section-heading">
               <div>
-                <span className="analysis-step-label">
-                  STEP 01
-                </span>
+                <span className="analysis-step-label">STEP 01</span>
                 <h3>Upload an image</h3>
                 <p>
-                  Choose an image from your device or drag it into
-                  the upload area.
+                  Choose an image from your device or drag it into the upload
+                  area.
                 </p>
               </div>
             </div>
@@ -308,9 +594,7 @@ export default function NewAnalysis() {
                     <button
                       className="dashboard-primary-button"
                       type="button"
-                      onClick={() =>
-                        galleryInputRef.current?.click()
-                      }
+                      onClick={() => galleryInputRef.current?.click()}
                     >
                       <Upload size={17} />
                       Browse Images
@@ -319,12 +603,13 @@ export default function NewAnalysis() {
                     <button
                       className="dashboard-secondary-button"
                       type="button"
-                      onClick={() =>
-                        cameraInputRef.current?.click()
-                      }
+                      onClick={() => {
+                        setCameraError(null);
+                        setIsCameraOpen(true);
+                      }}
                     >
-                      <ImagePlus size={17} />
-                      Use Camera
+                      <Camera size={17} />
+                      Open Camera
                     </button>
                   </div>
 
@@ -338,10 +623,7 @@ export default function NewAnalysis() {
               ) : (
                 <div className="analysis-preview">
                   <div className="analysis-preview-image">
-                    <img
-                      src={previewUrl}
-                      alt="Selected skin lesion"
-                    />
+                    <img src={previewUrl} alt="Selected skin lesion" />
                   </div>
 
                   <div className="analysis-preview-info">
@@ -352,8 +634,7 @@ export default function NewAnalysis() {
                     <div className="analysis-preview-file-details">
                       <strong>{selectedFile?.name}</strong>
                       <span>
-                        {selectedFile &&
-                          formatFileSize(selectedFile.size)}
+                        {selectedFile && formatFileSize(selectedFile.size)}
                       </span>
                     </div>
 
@@ -390,9 +671,7 @@ export default function NewAnalysis() {
                       <button
                         className="dashboard-secondary-button"
                         type="button"
-                        onClick={() =>
-                          galleryInputRef.current?.click()
-                        }
+                        onClick={() => galleryInputRef.current?.click()}
                         disabled={isLoading}
                       >
                         Change Image
@@ -416,8 +695,8 @@ export default function NewAnalysis() {
                 <div>
                   <strong>Analyzing your image</strong>
                   <span>
-                    The model is processing the image and generating
-                    its visual explanation.
+                    The model is processing the image and generating its visual
+                    explanation.
                   </span>
                 </div>
               </div>
@@ -426,24 +705,19 @@ export default function NewAnalysis() {
 
           {prediction && (
             <div className="analysis-results">
-
               <div className="analysis-results-heading">
                 <div>
-                  <span className="analysis-step-label">
-                    STEP 02
-                  </span>
+                  <span className="analysis-step-label">STEP 02</span>
                   <h2>Analysis report</h2>
                   <p>
-                    The following results were generated by the
-                    SkinSight classification model.
+                    The following results were generated by the SkinSight
+                    classification model.
                   </p>
                 </div>
 
                 <span
                   className={`analysis-status ${
-                    prediction.is_uncertain
-                      ? "uncertain"
-                      : "accepted"
+                    prediction.is_uncertain ? "uncertain" : "accepted"
                   }`}
                 >
                   {prediction.is_uncertain ? (
@@ -485,9 +759,7 @@ export default function NewAnalysis() {
                       Model confidence
                     </span>
 
-                    <strong>
-                      {formatPercentage(prediction.confidence)}
-                    </strong>
+                    <strong>{formatPercentage(prediction.confidence)}</strong>
 
                     <span>Classification score</span>
                   </div>
@@ -496,8 +768,7 @@ export default function NewAnalysis() {
                 <div className="analysis-result-footnote">
                   <ShieldCheck size={16} />
                   <span>
-                    Model confidence is not the same as diagnostic
-                    certainty.
+                    Model confidence is not the same as diagnostic certainty.
                   </span>
                 </div>
               </section>
@@ -510,8 +781,8 @@ export default function NewAnalysis() {
                     </span>
                     <h3>Uncertainty assessment</h3>
                     <p>
-                      Additional information about the model's
-                      prediction uncertainty.
+                      Additional information about the model's prediction
+                      uncertainty.
                     </p>
                   </div>
                 </div>
@@ -526,9 +797,7 @@ export default function NewAnalysis() {
                       Normalized entropy
                     </span>
 
-                    <strong>
-                      {prediction.normalized_entropy.toFixed(4)}
-                    </strong>
+                    <strong>{prediction.normalized_entropy.toFixed(4)}</strong>
 
                     <span className="analysis-metric-description">
                       Model uncertainty metric
@@ -555,9 +824,7 @@ export default function NewAnalysis() {
                     </span>
 
                     <strong>
-                      {prediction.is_uncertain
-                        ? "Uncertain"
-                        : "Accepted"}
+                      {prediction.is_uncertain ? "Uncertain" : "Accepted"}
                     </strong>
 
                     <span className="analysis-metric-description">
@@ -568,9 +835,7 @@ export default function NewAnalysis() {
 
                 <div
                   className={`analysis-uncertainty-note ${
-                    prediction.is_uncertain
-                      ? "warning"
-                      : "success"
+                    prediction.is_uncertain ? "warning" : "success"
                   }`}
                 >
                   {prediction.is_uncertain ? (
@@ -588,16 +853,14 @@ export default function NewAnalysis() {
 
                     {prediction.uncertainty_reasons.length > 0 ? (
                       <ul>
-                        {prediction.uncertainty_reasons.map(
-                          (reason, index) => (
-                            <li key={index}>{reason}</li>
-                          )
-                        )}
+                        {prediction.uncertainty_reasons.map((reason, index) => (
+                          <li key={index}>{reason}</li>
+                        ))}
                       </ul>
                     ) : (
                       <p>
-                        No additional uncertainty reasons were
-                        returned by the model.
+                        No additional uncertainty reasons were returned by the
+                        model.
                       </p>
                     )}
                   </div>
@@ -607,15 +870,13 @@ export default function NewAnalysis() {
               <section className="analysis-section">
                 <div className="analysis-section-heading">
                   <div>
-                    <span className="analysis-step-label">
-                      MODEL OUTPUT
-                    </span>
+                    <span className="analysis-step-label">MODEL OUTPUT</span>
 
                     <h3>Class probability distribution</h3>
 
                     <p>
-                      See how the model distributed its prediction
-                      across the available classes.
+                      See how the model distributed its prediction across the
+                      available classes.
                     </p>
                   </div>
                 </div>
@@ -639,9 +900,7 @@ export default function NewAnalysis() {
                           <strong>{entry.class_name}</strong>
                         </div>
 
-                        <span>
-                          {formatPercentage(entry.probability)}
-                        </span>
+                        <span>{formatPercentage(entry.probability)}</span>
                       </div>
 
                       <div className="analysis-progress-track">
@@ -651,11 +910,8 @@ export default function NewAnalysis() {
                           }`}
                           style={{
                             width: `${Math.min(
-                              Math.max(
-                                entry.probability * 100,
-                                0
-                              ),
-                              100
+                              Math.max(entry.probability * 100, 0),
+                              100,
                             )}%`,
                           }}
                         />
@@ -667,15 +923,13 @@ export default function NewAnalysis() {
               <section className="analysis-section">
                 <div className="analysis-section-heading">
                   <div>
-                    <span className="analysis-step-label">
-                      STEP 03
-                    </span>
+                    <span className="analysis-step-label">STEP 03</span>
 
                     <h3>Visual explanation</h3>
 
                     <p>
-                      Explore the Grad-CAM outputs generated during
-                      image classification.
+                      Explore the Grad-CAM outputs generated during image
+                      classification.
                     </p>
                   </div>
                 </div>
@@ -685,9 +939,7 @@ export default function NewAnalysis() {
                     <div className="analysis-gradcam-heading">
                       <div>
                         <strong>Activation heatmap</strong>
-                        <span>
-                          Model activation visualization
-                        </span>
+                        <span>Model activation visualization</span>
                       </div>
 
                       <Activity size={19} />
@@ -705,9 +957,7 @@ export default function NewAnalysis() {
                     <div className="analysis-gradcam-heading">
                       <div>
                         <strong>Image overlay</strong>
-                        <span>
-                          Activation map over the original image
-                        </span>
+                        <span>Activation map over the original image</span>
                       </div>
 
                       <ImagePlus size={19} />
@@ -726,14 +976,117 @@ export default function NewAnalysis() {
                   <AlertCircle size={17} />
 
                   <p>
-                    Grad-CAM highlights image regions that influenced
-                    the model's output. It is an interpretability aid,
-                    not a clinically validated lesion-localization
-                    tool.
+                    Grad-CAM highlights image regions that influenced the
+                    model's output. It is an interpretability aid, not a
+                    clinically validated lesion-localization tool.
                   </p>
                 </div>
               </section>
+              {/* Gemini AI Review */}
+              <section className="analysis-section ai-review-section">
+                {/* <div className="analysis-section-heading">
+                  <div>
+                    <span className="analysis-step-label">STEP 04</span>
+                    <h3>AI-powered skin review</h3>
+                    <p>
+                      Get an educational explanation of your model's
+                      classification and general skin-health guidance.
+                    </p>
+                  </div>
+                </div> */}
 
+                {/* <div className="ai-review-card">
+                  <div className="ai-review-intro">
+                    <div className="ai-review-icon">
+                      <Sparkles size={24} />
+                    </div>
+
+                    <div>
+                      <strong>Gemini AI Review</strong>
+                      <span>
+                        Educational feedback based on your classification
+                        results.
+                      </span>
+                    </div>
+                  </div>
+
+                  {!aiReview && (
+                    <button
+                      type="button"
+                      className="dashboard-primary-button ai-review-button"
+                      onClick={handleGetAIReview}
+                      disabled={isGeneratingReview}
+                    >
+                      {isGeneratingReview ? (
+                        <>
+                          <span className="analysis-spinner" />
+                          Generating AI Review...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={18} />
+                          Get AI Review
+                          <ArrowRight size={17} />
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {aiReviewError && (
+                    <div className="analysis-error">
+                      <AlertCircle size={19} />
+                      <span>{aiReviewError}</span>
+                    </div>
+                  )}
+
+                  {aiReview && (
+                    <div className="ai-review-result">
+                      <div className="ai-review-result-header">
+                        <div>
+                          <strong>Your AI-generated review</strong>
+                          <span>
+                            {isGeneratingReview
+                              ? "Gemini is writing your review..."
+                              : `Powered by ${aiReview.model}`}
+                          </span>
+                        </div>
+
+                        {isGeneratingReview ? (
+                          <span className="analysis-spinner" />
+                        ) : (
+                          <CheckCircle2 size={21} />
+                        )}
+                      </div>
+
+                      <div className="ai-review-markdown">
+                        <ReactMarkdown>{aiReview.review}</ReactMarkdown>
+
+                        {isGeneratingReview && (
+                          <span className="ai-streaming-cursor" />
+                        )}
+                      </div>
+
+                      {!isGeneratingReview && aiReview.disclaimer && (
+                        <div className="ai-review-disclaimer">
+                          <ShieldCheck size={18} />
+                          <p>{aiReview.disclaimer}</p>
+                        </div>
+                      )}
+
+                      {!isGeneratingReview && (
+                        <button
+                          type="button"
+                          className="dashboard-secondary-button"
+                          onClick={handleGetAIReview}
+                        >
+                          <RotateCcw size={16} />
+                          Generate Again
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div> */}
+              </section>
               {/* Actions */}
               <div className="analysis-final-actions">
                 <button
@@ -758,6 +1111,93 @@ export default function NewAnalysis() {
             </p>
           </footer>
         </div>
+        {isCameraOpen && (
+          <div className="camera-modal-backdrop" onClick={closeCamera}>
+            <section
+              className="camera-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="camera-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="camera-modal-header">
+                <div>
+                  <span className="analysis-step-label">IMAGE CAPTURE</span>
+                  <h2 id="camera-modal-title">Capture skin image</h2>
+                  <p>Position the area clearly inside the camera frame.</p>
+                </div>
+
+                <button
+                  type="button"
+                  className="camera-close-button"
+                  onClick={closeCamera}
+                  aria-label="Close camera"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="camera-preview-container">
+                <video
+                  ref={videoRef}
+                  className="camera-video"
+                  autoPlay
+                  playsInline
+                  muted
+                />
+
+                {cameraError && (
+                  <div className="camera-error">
+                    <AlertCircle size={20} />
+                    <span>{cameraError}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="camera-guidance">
+                <AlertCircle size={16} />
+                Use good lighting, keep the camera steady, and avoid blurry
+                images.
+              </div>
+
+              <div className="camera-modal-actions">
+                <button
+                  type="button"
+                  className="dashboard-secondary-button"
+                  onClick={() =>
+                    setFacingMode((current) =>
+                      current === "environment" ? "user" : "environment",
+                    )
+                  }
+                >
+                  <RotateCcw size={17} />
+                  Switch Camera
+                </button>
+
+                <button
+                  type="button"
+                  className="dashboard-primary-button"
+                  onClick={captureImage}
+                  disabled={!!cameraError}
+                >
+                  <Camera size={18} />
+                  Capture Image
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="camera-upload-fallback"
+                onClick={() => {
+                  closeCamera();
+                  galleryInputRef.current?.click();
+                }}
+              >
+                Or upload an image from your device
+              </button>
+            </section>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -8,3 +8,4 @@ numpy
 scikit-learn
 matplotlib
 pytest
+SQLAlchemy>=2.0,<3.0
